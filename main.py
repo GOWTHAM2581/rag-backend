@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key=os.environ["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"], base_url="https://api.groq.com/openai/v1")
+client = OpenAI(api_key=os.environ["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
 
 def embed(text):
     r = client.embeddings.create(
@@ -29,8 +29,9 @@ def embed(text):
     )
     return np.array(r.data[0].embedding, dtype="float32")
 
+
 groq = OpenAI(
-    api_key="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",
+    api_key=os.environ["GROQ_API_KEY"],
     base_url="https://api.groq.com/openai/v1"
 )
 
@@ -43,9 +44,6 @@ class AskRequest(BaseModel):
     question: str
 
 
-# ------------------------------
-# PROCESS PDF
-# ------------------------------
 @app.post("/process_pdf")
 def process_pdf(req: ProcessRequest):
     uid = req.uid
@@ -56,10 +54,9 @@ def process_pdf(req: ProcessRequest):
     open(pdf_path, "wb").write(r.content)
 
     reader = PdfReader(pdf_path)
-    chunks = []
-    metadata = []
 
-    # chunk per page
+    chunks, metadata = [], []
+
     for pageno, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
         for i in range(0, len(text), 800):
@@ -67,11 +64,11 @@ def process_pdf(req: ProcessRequest):
             chunks.append(chunk)
             metadata.append({"page": pageno})
 
-    vectors = embedding_model.encode(chunks)
-    vectors = np.array(vectors, dtype="float32")
+    vectors = np.array([embed(c) for c in chunks], dtype="float32")
     faiss.normalize_L2(vectors)
 
-    index = faiss.IndexFlatIP(384)
+    dim = vectors.shape[1]
+    index = faiss.IndexFlatIP(dim)
     index.add(vectors)
 
     faiss.write_index(index, f"user_data/{uid}/vectors.index")
@@ -81,20 +78,17 @@ def process_pdf(req: ProcessRequest):
     return {"status": "PDF embedded successfully"}
 
 
-# ------------------------------
-# ASK QUESTION
-# ------------------------------
 @app.post("/ask")
 def ask(req: AskRequest):
     uid = req.uid
+
     index = faiss.read_index(f"user_data/{uid}/vectors.index")
     data = pickle.load(open(f"user_data/{uid}/chunks.pkl", "rb"))
 
     chunks = data["chunks"]
     metadata = data["metadata"]
 
-    query_vec = embedding_model.encode(req.question).reshape(1, -1)
-    query_vec = query_vec.astype("float32")
+    query_vec = embed(req.question).reshape(1, -1)
     faiss.normalize_L2(query_vec)
 
     scores, idxs = index.search(query_vec, 3)
@@ -110,13 +104,10 @@ def ask(req: AskRequest):
             {"role": "user", "content": f"Context:\n{context}\nQuestion:\n{req.question}"}
         ]
     )
-
+    
     return {"answer": completion.choices[0].message.content}
 
 
-# ------------------------------
-# DELETE USER DATA
-# ------------------------------
 @app.delete("/delete_user")
 def delete_user(uid: str):
     path = f"user_data/{uid}"
@@ -124,6 +115,3 @@ def delete_user(uid: str):
         import shutil
         shutil.rmtree(path)
     return {"status": "User data deleted"}
-
-
-
