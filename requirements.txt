@@ -5,6 +5,7 @@ requests
 sentence-transformers
 numpy
 faiss-cpu
-groq
+openai
 supabase
 pydantic
+starlette
