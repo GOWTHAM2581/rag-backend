@@ -38,7 +38,7 @@ groq = OpenAI(
 # ----------------------------
 def embed_text(text: str):
     r = groq.embeddings.create(
-        model="nomic-embed-text",
+        model="voyage-3",
         input=text
     )
     return np.array(r.data[0].embedding, dtype="float32")
@@ -147,3 +147,4 @@ def delete_user(uid: str):
     if os.path.exists(dir_path):
         shutil.rmtree(dir_path)
     return {"status": "deleted"}
+
