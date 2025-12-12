@@ -4,12 +4,26 @@ import os, requests, faiss, numpy as np, pickle
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from pypdf import PdfReader
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+origins = [
+    "https://doc-gpt-4rcx.vercel.app",
+    "http://localhost:3000"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 groq = OpenAI(
-    api_key="YOUR_GROQ_KEY",
+    api_key="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",
     base_url="https://api.groq.com/openai/v1"
 )
 
@@ -103,3 +117,4 @@ def delete_user(uid: str):
         import shutil
         shutil.rmtree(path)
     return {"status": "User data deleted"}
+
