@@ -1,11 +1,7 @@
 fastapi
 uvicorn
-python-multipart
 requests
-sentence-transformers
+pypdf
 numpy
 faiss-cpu
 openai
-supabase
-pydantic
-starlette
