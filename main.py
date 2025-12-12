@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key=os.environ["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
+client = OpenAI(api_key=os.environ["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"], base_url="https://api.groq.com/openai/v1")
 
 def embed(text):
     r = client.embeddings.create(
@@ -124,5 +124,6 @@ def delete_user(uid: str):
         import shutil
         shutil.rmtree(path)
     return {"status": "User data deleted"}
+
 
 
