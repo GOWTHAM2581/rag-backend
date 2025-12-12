@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+requests
+sentence-transformers
+numpy
+faiss-cpu
+groq
+supabase
+pydantic
