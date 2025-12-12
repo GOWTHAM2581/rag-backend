@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import os, requests, faiss, numpy as np, pickle
-from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from pypdf import PdfReader
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +20,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+client = OpenAI(api_key=os.environ["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
+
+def embed(text):
+    r = client.embeddings.create(
+        model="nomic-embed-text",
+        input=text
+    )
+    return np.array(r.data[0].embedding, dtype="float32")
+
 groq = OpenAI(
     api_key="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",
     base_url="https://api.groq.com/openai/v1"
@@ -117,4 +124,5 @@ def delete_user(uid: str):
         import shutil
         shutil.rmtree(path)
     return {"status": "User data deleted"}
+
 
