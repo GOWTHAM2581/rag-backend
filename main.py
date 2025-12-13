@@ -1,47 +1,35 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import os, requests, pickle, shutil
-import faiss
+import os, requests, pickle
 import numpy as np
+import faiss
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
-from openai import OpenAI
 
 # ----------------------------
-# FASTAPI APP + CORS
+# APP
 # ----------------------------
 app = FastAPI()
 
-origins = [
-    "https://doc-gpt-4rcx.vercel.app",
-    "http://localhost:3000"
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "https://doc-gpt-4rcx.vercel.app",
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ----------------------------
-# LOCAL EMBEDDING MODEL (CORRECT)
+# EMBEDDING MODEL (LOCAL)
 # ----------------------------
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-EMBED_DIM = 384
+model = SentenceTransformer("all-MiniLM-L6-v2")  # 384 dims
 
-def embed_text(text: str):
-    return embedding_model.encode(text).astype("float32")
-
-# ----------------------------
-# GROQ CLIENT (CHAT ONLY)
-# ----------------------------
-groq = OpenAI(
-    api_key=os.environ["GROQ_API_KEY"],
-    base_url="https://api.groq.com/openai/v1"
-)
+def embed(text: str):
+    return model.encode(text).astype("float32")
 
 # ----------------------------
 # REQUEST MODELS
@@ -60,14 +48,13 @@ class AskRequest(BaseModel):
 @app.post("/process_pdf")
 def process_pdf(req: ProcessRequest):
     uid = req.uid
-    user_path = f"user_data/{uid}"
-    os.makedirs(user_path, exist_ok=True)
+    base_path = f"user_data/{uid}"
+    os.makedirs(base_path, exist_ok=True)
 
     # Download PDF
-    pdf_path = f"{user_path}/doc.pdf"
-    r = requests.get(req.url)
-    r.raise_for_status()
-    open(pdf_path, "wb").write(r.content)
+    pdf_path = f"{base_path}/doc.pdf"
+    pdf_bytes = requests.get(req.url, timeout=30).content
+    open(pdf_path, "wb").write(pdf_bytes)
 
     # Extract text
     reader = PdfReader(pdf_path)
@@ -75,73 +62,48 @@ def process_pdf(req: ProcessRequest):
 
     for page_no, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
-        for i in range(0, len(text), 800):
-            chunk = text[i:i+800].strip()
+        for i in range(0, len(text), 700):
+            chunk = text[i:i+700].strip()
             if chunk:
                 chunks.append(chunk)
                 metadata.append({"page": page_no})
 
-    if not chunks:
-        return {"error": "No readable text found in PDF"}
-
-    # Embed chunks
-    vectors = np.array([embed_text(c) for c in chunks], dtype="float32")
+    # Embed
+    vectors = np.vstack([embed(c) for c in chunks])
     faiss.normalize_L2(vectors)
 
-    # Create FAISS index
-    index = faiss.IndexFlatIP(EMBED_DIM)
+    index = faiss.IndexFlatIP(vectors.shape[1])
     index.add(vectors)
 
-    faiss.write_index(index, f"{user_path}/vectors.index")
+    faiss.write_index(index, f"{base_path}/vectors.index")
     pickle.dump(
         {"chunks": chunks, "metadata": metadata},
-        open(f"{user_path}/chunks.pkl", "wb")
+        open(f"{base_path}/chunks.pkl", "wb")
     )
 
-    return {
-        "status": "PDF processed successfully",
-        "chunks": len(chunks)
-    }
+    return {"status": "success", "chunks": len(chunks)}
 
 # ----------------------------
-# ASK QUESTION
+# ASK
 # ----------------------------
 @app.post("/ask")
 def ask(req: AskRequest):
-    user_path = f"user_data/{req.uid}"
+    base_path = f"user_data/{req.uid}"
 
-    index = faiss.read_index(f"{user_path}/vectors.index")
-    data = pickle.load(open(f"{user_path}/chunks.pkl", "rb"))
+    index = faiss.read_index(f"{base_path}/vectors.index")
+    data = pickle.load(open(f"{base_path}/chunks.pkl", "rb"))
 
-    chunks = data["chunks"]
-    metadata = data["metadata"]
+    q_vec = embed(req.question).reshape(1, -1)
+    faiss.normalize_L2(q_vec)
 
-    query_vec = embed_text(req.question).reshape(1, -1)
-    faiss.normalize_L2(query_vec)
-
-    scores, idxs = index.search(query_vec, 3)
+    _, idxs = index.search(q_vec, 3)
 
     context = ""
-    for idx in idxs[0]:
-        context += f"[Page {metadata[idx]['page']}] {chunks[idx]}\n\n"
+    for i in idxs[0]:
+        context += f"[Page {data['metadata'][i]['page']}]\n{data['chunks'][i]}\n\n"
 
-    completion = groq.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": "Answer ONLY using the context."},
-            {"role": "user", "content": f"Context:\n{context}\nQuestion:\n{req.question}"}
-        ]
-    )
-
-    return {"answer": completion.choices[0].message.content}
-
-# ----------------------------
-# DELETE USER DATA
-# ----------------------------
-@app.delete("/delete_user")
-def delete_user(uid: str):
-    path = f"user_data/{uid}"
-    if os.path.exists(path):
-        shutil.rmtree(path)
-    return {"status": "deleted"}
+    return {
+        "context": context,
+        "note": "Send this context to LLM (Groq/OpenAI) from frontend or separate service"
+    }
 
