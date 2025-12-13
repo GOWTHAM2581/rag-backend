@@ -1,8 +1,10 @@
 fastapi
 uvicorn
-pydantic
-numpy
-faiss-cpu
 pypdf
+faiss-cpu
+sentence-transformers
+numpy
 requests
+python-multipart
 openai
+
